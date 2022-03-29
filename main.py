@@ -5,40 +5,37 @@ from time import sleep
 import re
 import time
 import mysql.connector
+from transformers import pipeline
+from statistics import mean,mode
+
+client = boto3.client('rds', region_name='us-east-1')
+response = client.describe_db_instances()
+dict1 = {}
+for db_instance in response['DBInstances']:
+    if db_instance['DBInstanceIdentifier'] == 'projectdatabase':
+        dict1['DBInstanceIdentifier'] = db_instance['DBInstanceIdentifier']
+        dict1['Endpoint'] = db_instance['Endpoint']["Address"]
 
 
-# client = boto3.client('rds', region_name='us-east-1')
-# response = client.describe_db_instances()
-# dict1 = {}
-# for db_instance in response['DBInstances']:
-#     if db_instance['DBInstanceIdentifier'] == 'projectdatabase':
-#         dict1['DBInstanceIdentifier'] = db_instance['DBInstanceIdentifier']
-#         dict1['Endpoint'] = db_instance['Endpoint']["Address"]
-#
-#
-# print(dict1['Endpoint'])
-# mydb = mysql.connector.connect(
-#     host=dict1['Endpoint'],
-#     user="vitaproject",
-#     password="vitafinalproject",
-#     database="ProjectDatabase"
-# )
-#
-# create_table = mydb.cursor()
-# create_table.execute("""CREATE TABLE IF NOT EXISTS amazon_products3(Product_name VARCHAR(255),Rating VARCHAR(255),
-# Total_rating_count int,Discounted_price int,Original_price VARCHAR(20),Product_url VARCHAR(500),Time VARCHAR(20))""")
+print(dict1['Endpoint'])
+mydb = mysql.connector.connect(
+    host=dict1['Endpoint'],
+    user="vitaproject",
+    password="vitafinalproject",
+    database="ProjectDatabase"
+)
 
-
-
+create_table = mydb.cursor()
+create_table.execute("""CREATE TABLE IF NOT EXISTS amazon_products3(Product_name VARCHAR(255),Rating VARCHAR(255),
+Total_rating_count int,Discounted_price int,Original_price VARCHAR(20),Product_url VARCHAR(500),Sentiments VARCHAR(10),
+Confidence INT,Time VARCHAR(20))""")
 headers = {'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:94.0) Gecko/20100101 Firefox/94.0',
            'Accept-Language': 'en-US, en;q=0.5'}
 
 # search_query = 'iphone'.replace(' ','+')
 # base_url = 'https://www.amazon.in/s?k={0}'.format(search_query)
 
-
 counter = 0  # Global counter to count submitted records
-
 
 def stream_records(items):
     global mydb
@@ -47,8 +44,9 @@ def stream_records(items):
         named_tuple = time.localtime()  # get struct_time
         time_string = time.strftime("%m-%d-%Y %H:%M:%S", named_tuple)
 
-        sql = "INSERT INTO amazon_products3 VALUES (%s, %s, %s, %s, %s, %s, %s)"
-        val = (items[i][0], items[i][1], items[i][2], items[i][3], items[i][4], items[i][5],time_string)
+        sql = "INSERT INTO amazon_products3 VALUES (%s, %s, %s, %s, %s, %s, %s,%s,%s)"
+        val = (items[i][0], items[i][1], items[i][2], items[i][3], items[i][4], items[i][5],items[i][6],items[i][7],
+               time_string)
         insert_in.execute(sql, val)
         mydb.commit()
 
@@ -56,6 +54,20 @@ def stream_records(items):
         counter = counter + 1
 
         print('Message sent #' + str(counter))
+def sentiment_analysis(review_list):
+    sentiment_analysis = pipeline("sentiment-analysis", model="siebert/sentiment-roberta-large-english")
+    labels=list()
+    score=list()
+    for review in review_list:
+        output=sentiment_analysis(review)
+        labels.append(output[0]['label'])
+        score.append(output[0]['score'])
+    return mode(labels),mean(score)
+
+
+
+
+
 
 def sentiment(product_url):
     try:
@@ -65,20 +77,12 @@ def sentiment(product_url):
         reviews=[]
         for i in range(0,len(sentiments)):
             reviews.append(sentiments[i].get_text())
-        print(reviews)
 
-
-
-
-
-
-
-        #reviews = sentiments.find('div',{'data-hook':"review-collapsed"}).text
-        #print(sentiments)
 
     except AttributeError:
-        pass
+        print('failed to get sentiments')
 
+    return sentiment_analysis(reviews)
 
 
 def Scraper(base_url):
@@ -116,14 +120,21 @@ def Scraper(base_url):
                 actual_price = result.find('span', {'class': 'a-price a-text-price'}).text
                 actual_price = re.sub("^₹.*₹", "_", actual_price).strip("_")
                 product_url = 'https://amazon.in' + result.h2.a['href']
+
                 print(product_url)
-                sentiment(product_url)
-
-
-                #items.append([product_name, rating, total_rating_count, current_price, actual_price, product_url])
+                sentiment, confidence = sentiment(product_url)
+                print(sentiment,confidence)
+                items.append([product_name,rating, total_rating_count, current_price, actual_price, product_url,
+                              sentiment,confidence])
             except AttributeError:
                 continue
-        #stream_records(items)  # calling function to push records to kinesis streams
+        stream_records(items)  # calling function to push records to kinesis streams
+
+                #items.append([product_name, rating, total_rating_count, current_price, actual_price, product_url])
+            #except AttributeError:
+                #continue
+        stream_records(items)  # calling function to push records to kinesis streams
+
         # print(items)
         sleep(1.5)
 
