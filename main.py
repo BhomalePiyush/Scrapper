@@ -37,6 +37,7 @@ headers = {'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:94.0) Gec
 
 counter = 0  # Global counter to count submitted records
 
+
 def stream_records(items):
     global mydb
     insert_in = mydb.cursor()
@@ -45,7 +46,7 @@ def stream_records(items):
         time_string = time.strftime("%m-%d-%Y %H:%M:%S", named_tuple)
 
         sql = "INSERT INTO amazon_products3 VALUES (%s, %s, %s, %s, %s, %s, %s,%s,%s)"
-        val = (items[i][0], items[i][1], items[i][2], items[i][3], items[i][4], items[i][5],items[i][6],items[i][7],
+        val = (items[i][0], items[i][1], items[i][2], items[i][3], items[i][4], items[i][5], items[i][6], items[i][7],
                time_string)
         insert_in.execute(sql, val)
         mydb.commit()
@@ -54,38 +55,33 @@ def stream_records(items):
         counter = counter + 1
 
         print('Message sent #' + str(counter))
+
+
 def sentiment_analysis(review_list):
-    sentiment_analysis = pipeline("sentiment-analysis", model="siebert/sentiment-roberta-large-english")
-    labels=list()
-    score=list()
+    analysis = pipeline("sentiment-analysis", model="siebert/sentiment-roberta-large-english")
+    labels = list()
+    score = list()
     for review in review_list:
-        output=sentiment_analysis(review)
+        output = analysis(review)
         labels.append(output[0]['label'])
         score.append(output[0]['score'])
-    return mode(labels),mean(score)
-
-
-
-
+    return mode(labels), mean(score)
 
 
 def sentiment(product_url):
     try:
         rsp = requests.get(product_url,headers=headers)
         rsp_soup = BeautifulSoup(rsp.content, 'html.parser')
-        sentiments=rsp_soup.find_all("a", {"class":"review-title"})
-        reviews=[]
-        for i in range(0,len(sentiments)):
-            reviews.append(sentiments[i].get_text())
-
-
+        sentiments = rsp_soup.find_all("a", {"class":"review-title"})
+        reviews = []
+        for review in range(0, len(sentiments)):
+            reviews.append(sentiments[review].get_text())
     except AttributeError:
         print('failed to get sentiments')
-
     return sentiment_analysis(reviews)
 
 
-def Scraper(base_url):
+def scraper(base_url):
     total_pages = 1
     next_page = "Next"
     while next_page != "":
@@ -122,25 +118,14 @@ def Scraper(base_url):
                 product_url = 'https://amazon.in' + result.h2.a['href']
 
                 print(product_url)
-                sentiment, confidence = sentiment(product_url)
-                print(sentiment,confidence)
-                items.append([product_name,rating, total_rating_count, current_price, actual_price, product_url,
-                              sentiment,confidence])
+                review, confidence = sentiment(product_url)
+                print(review, confidence)
+                items.append([product_name, rating, total_rating_count, current_price, actual_price, product_url,
+                              review, confidence])
             except AttributeError:
                 continue
         stream_records(items)  # calling function to push records to kinesis streams
-
-                #items.append([product_name, rating, total_rating_count, current_price, actual_price, product_url])
-            #except AttributeError:
-                #continue
-        stream_records(items)  # calling function to push records to kinesis streams
-
-        # print(items)
         sleep(1.5)
-
-
-# df = pd.DataFrame(items, columns=['product', 'rating', 'rating count', 'price1', 'price2', 'product url'])
-# df.to_csv('{0}.csv'.format(search_query), index=False)
 
 
 def itemlist(search_list):
@@ -148,7 +133,7 @@ def itemlist(search_list):
     for i in search_list:
         search_query = i.replace(' ', '+')
         base_url = 'https://www.amazon.in/s?k={0}'.format(search_query)
-        Scraper(base_url)
+        scraper(base_url)
 
 
 if __name__ == '__main__':
