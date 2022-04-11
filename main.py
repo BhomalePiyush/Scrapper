@@ -125,7 +125,7 @@ def scraper(base_url):
             except AttributeError:
                 continue
         stream_records(items)  # calling function to push records to kinesis streams
-        sleep(1.5)
+
 
 
 def itemlist(search_list):
